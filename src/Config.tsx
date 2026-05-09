@@ -181,6 +181,7 @@ export default function Config() {
   const [keys, setKeys] = createSignal<KeyConfig[]>(loadConfig());
   const [selectedIdx, setSelectedIdx] = createSignal<number | null>(null);
   const [overlayActive, setOverlayActive] = createSignal(false);
+  const [clickThrough, setClickThrough] = createSignal(true);
   const [isCapturing, setIsCapturing] = createSignal(false);
   const [addId, setAddId] = createSignal("");
   const [addLabel, setAddLabel] = createSignal("");
@@ -294,6 +295,16 @@ export default function Config() {
       console.error("toggle_overlay invoke failed:", err);
     }
   }
+  
+  async function toggleClickThrough() {
+    const next = !clickThrough();
+    setClickThrough(next);
+    try {
+      await invoke("set_ignore_cursor_events", { ignore: next });
+    } catch (err) {
+      console.error("set_ignore_cursor_events failed:", err);
+    }
+  }
 
   return (
     <div class="config-root">
@@ -303,14 +314,27 @@ export default function Config() {
           <span class="logo-mark">⌨</span>
           <h1>KeyViewer</h1>
         </div>
-        <button
-          class="btn-overlay"
-          classList={{ active: overlayActive() }}
-          onClick={toggleOverlay}
-        >
-          <span class="pulse-dot" />
-          {overlayActive() ? "Overlay ON" : "Overlay OFF"}
-        </button>
+        
+        <div style={{ display: "flex", gap: "12px" }}>
+          <button
+            class="btn-overlay"
+            classList={{ active: clickThrough() }}
+            onClick={toggleClickThrough}
+            title="When active, the overlay ignores mouse clicks (Click-through). Disable to drag."
+          >
+            <span class="pulse-dot" />
+            {clickThrough() ? "Click-Through ON" : "Click-Through OFF"}
+          </button>
+          
+          <button
+            class="btn-overlay"
+            classList={{ active: overlayActive() }}
+            onClick={toggleOverlay}
+          >
+            <span class="pulse-dot" />
+            {overlayActive() ? "Overlay ON" : "Overlay OFF"}
+          </button>
+        </div>
       </header>
 
       <div class="config-body">

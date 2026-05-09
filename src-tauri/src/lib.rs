@@ -40,7 +40,7 @@ fn start_rdev_listener(app: AppHandle) {
 async fn toggle_overlay(app: AppHandle, active: bool) -> Result<(), String> {
     if active {
         if app.get_webview_window("overlay").is_none() {
-            let _overlay = tauri::WebviewWindowBuilder::new(
+            let overlay = tauri::WebviewWindowBuilder::new(
                 &app,
                 "overlay",
                 tauri::WebviewUrl::App("index.html#/overlay".into()),
@@ -53,6 +53,8 @@ async fn toggle_overlay(app: AppHandle, active: bool) -> Result<(), String> {
             .skip_taskbar(true)
             .build()
             .map_err(|e| e.to_string())?;
+            
+            let _ = overlay.set_ignore_cursor_events(true);
         }
     } else {
         if let Some(overlay) = app.get_webview_window("overlay") {
@@ -73,6 +75,14 @@ async fn get_screen_size(app: AppHandle) -> Result<(u32, u32), String> {
     Ok((1920, 1080))
 }
 
+#[tauri::command]
+async fn set_ignore_cursor_events(app: AppHandle, ignore: bool) -> Result<(), String> {
+    if let Some(overlay) = app.get_webview_window("overlay") {
+        let _ = overlay.set_ignore_cursor_events(ignore);
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -81,7 +91,7 @@ pub fn run() {
             start_rdev_listener(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![toggle_overlay, get_screen_size])
+        .invoke_handler(tauri::generate_handler![toggle_overlay, get_screen_size, set_ignore_cursor_events])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

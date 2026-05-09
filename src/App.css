@@ -55,6 +55,10 @@ body.is-overlay {
   overflow: hidden;
 }
 
+.overlay-root[data-tauri-drag-region] {
+  cursor: move;
+}
+
 .overlay-key {
   font-family: var(--font-mono);
   font-weight: 700;
