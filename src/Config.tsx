@@ -181,7 +181,7 @@ export default function Config() {
   const [keys, setKeys] = createSignal<KeyConfig[]>(loadConfig());
   const [selectedIdx, setSelectedIdx] = createSignal<number | null>(null);
   const [overlayActive, setOverlayActive] = createSignal(false);
-  const [clickThrough, setClickThrough] = createSignal(true);
+  const [clickThrough, setClickThrough] = createSignal(localStorage.getItem("keyviewer-clickthrough") !== "false");
   const [isCapturing, setIsCapturing] = createSignal(false);
   const [addId, setAddId] = createSignal("");
   const [addLabel, setAddLabel] = createSignal("");
@@ -299,6 +299,7 @@ export default function Config() {
   async function toggleClickThrough() {
     const next = !clickThrough();
     setClickThrough(next);
+    localStorage.setItem("keyviewer-clickthrough", String(next));
     try {
       await invoke("set_ignore_cursor_events", { ignore: next });
     } catch (err) {

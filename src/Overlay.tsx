@@ -1,5 +1,7 @@
 import { createSignal, createEffect, onMount, onCleanup, For } from "solid-js";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import type { KeyConfig } from "./types";
 
 const STORAGE_KEY = "keyviewer-config";
@@ -39,6 +41,7 @@ function loadConfig(): KeyConfig[] {
 export default function Overlay() {
   const [keys, setKeys] = createSignal<KeyConfig[]>(loadConfig());
   const [pressed, setPressed] = createSignal<Set<string>>(new Set());
+  const [clickThrough, setClickThrough] = createSignal(localStorage.getItem("keyviewer-clickthrough") !== "false");
 
   let unlisten: UnlistenFn | undefined;
 
@@ -62,7 +65,10 @@ export default function Overlay() {
   });
 
   createEffect(() => {
-    const handler = () => setKeys(loadConfig());
+    const handler = () => {
+      setKeys(loadConfig());
+      setClickThrough(localStorage.getItem("keyviewer-clickthrough") !== "false");
+    };
     window.addEventListener("storage", handler);
     onCleanup(() => window.removeEventListener("storage", handler));
   });
@@ -84,9 +90,7 @@ export default function Overlay() {
     const targetWidth = Math.max(400, maxX + 20);
     const targetHeight = Math.max(300, maxY + 20);
     
-    import("@tauri-apps/api/window").then((module) => {
-      module.getCurrentWindow().setSize(new module.LogicalSize(targetWidth, targetHeight));
-    }).catch(() => {});
+    getCurrentWindow().setSize(new LogicalSize(targetWidth, targetHeight)).catch(console.error);
   });
 
   const isPressed = (id: string) => {
@@ -95,7 +99,11 @@ export default function Overlay() {
   };
 
   return (
-    <div class="overlay-root" data-tauri-drag-region>
+    <div 
+      class="overlay-root" 
+      classList={{ "is-draggable": !clickThrough() }}
+      data-tauri-drag-region 
+    >
       <For each={keys()}>
         {(k) => (
           <div

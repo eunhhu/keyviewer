@@ -59,6 +59,22 @@ body.is-overlay {
   cursor: move;
 }
 
+.overlay-root.is-draggable {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px dashed var(--accent);
+}
+
+.overlay-root.is-draggable::before {
+  content: "Drag to move";
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
 .overlay-key {
   font-family: var(--font-mono);
   font-weight: 700;
