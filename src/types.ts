@@ -16,7 +16,17 @@ export interface KeyConfig {
   pressedFontColor: string;
 }
 
+export interface RainConfig {
+  enabled: boolean;
+  speed: number;
+  color: string;
+  fontSize: number;
+  trailLength: number;
+  spawnRate: number;
+}
+
 export interface AppConfig {
   keys: KeyConfig[];
   overlayActive: boolean;
+  rain: RainConfig;
 }

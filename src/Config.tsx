@@ -9,7 +9,7 @@ import {
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { KeyConfig } from "./types";
+import type { KeyConfig, RainConfig } from "./types";
 
 const STORAGE_KEY = "keyviewer-config";
 
@@ -31,22 +31,34 @@ const defaultKeyConfig = (id: string, label: string): KeyConfig => ({
   pressedFontColor: "#ffffff",
 });
 
-function loadConfig(): KeyConfig[] {
+const defaultRainConfig = (): RainConfig => ({
+  enabled: false,
+  speed: 3,
+  color: "#00e5ff",
+  fontSize: 16,
+  trailLength: 20,
+  spawnRate: 1,
+});
+
+function loadConfig(): { keys: KeyConfig[]; rain: RainConfig } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<KeyConfig>[];
-      return parsed.map((k) => ({
-        ...defaultKeyConfig(k.id || "Key", k.label || "Key"),
-        ...k,
-      }));
+      const parsed = JSON.parse(raw);
+      return {
+        keys: (parsed.keys || []).map((k: Partial<KeyConfig>) => ({
+          ...defaultKeyConfig(k.id || "Key", k.label || "Key"),
+          ...k,
+        })),
+        rain: { ...defaultRainConfig(), ...parsed.rain },
+      };
     }
   } catch {}
-  return [];
+  return { keys: [], rain: defaultRainConfig() };
 }
 
-function saveConfig(keys: KeyConfig[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(keys));
+function saveConfig(keys: KeyConfig[], rain: RainConfig) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ keys, rain }));
 }
 
 // ─── Color Input with text fallback ────────────────────────────────
@@ -178,7 +190,9 @@ function DraggableKey(props: {
 
 // ─── Main Config Component ─────────────────────────────────────────
 export default function Config() {
-  const [keys, setKeys] = createSignal<KeyConfig[]>(loadConfig());
+  const initialConfig = loadConfig();
+  const [keys, setKeys] = createSignal<KeyConfig[]>(initialConfig.keys);
+  const [rain, setRain] = createSignal<RainConfig>(initialConfig.rain);
   const [selectedIdx, setSelectedIdx] = createSignal<number | null>(null);
   const [overlayActive, setOverlayActive] = createSignal(false);
   const [clickThrough, setClickThrough] = createSignal(localStorage.getItem("keyviewer-clickthrough") !== "false");
