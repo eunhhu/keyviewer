@@ -384,10 +384,18 @@ body.is-overlay {
   flex-shrink: 0;
 }
 
-.preview-canvas {
+.preview-scroll-container {
   flex: 1;
+  overflow: auto;
   position: relative;
-  overflow: hidden;
+}
+
+.preview-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3000px;
+  height: 3000px;
   background:
     radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0);
   background-size: 8px 8px;

@@ -23,10 +23,12 @@ const defaultKeyConfig = (id: string, label: string): KeyConfig => ({
   outlineWidth: 2,
   outlineColor: "#00e5ff",
   bgColor: "rgba(15, 15, 15, 0.85)",
+  pressedOutlineColor: "#00e5ff",
   pressedBgColor: "rgba(0, 229, 255, 0.35)",
   rounded: 10,
   fontSize: 20,
   fontColor: "#ffffff",
+  pressedFontColor: "#ffffff",
 });
 
 function loadConfig(): KeyConfig[] {
@@ -151,12 +153,12 @@ function DraggableKey(props: {
         width: `${props.config.width}px`,
         height: `${props.config.height}px`,
         "outline-width": `${props.config.outlineWidth}px`,
-        "outline-color": props.config.outlineColor,
+        "outline-color": props.selected ? props.config.pressedOutlineColor : props.config.outlineColor,
         "outline-style": "solid",
-        "background-color": props.config.bgColor,
+        "background-color": props.selected ? props.config.pressedBgColor : props.config.bgColor,
         "border-radius": `${props.config.rounded}px`,
         "font-size": `${props.config.fontSize}px`,
-        color: props.config.fontColor,
+        color: props.selected ? props.config.pressedFontColor : props.config.fontColor,
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -176,6 +178,8 @@ export default function Config() {
   const [addId, setAddId] = createSignal("");
   const [addLabel, setAddLabel] = createSignal("");
 
+  const [isCapturingExisting, setIsCapturingExisting] = createSignal(false);
+
   // Persist on change
   createEffect(() => {
     saveConfig(keys());
@@ -184,42 +188,49 @@ export default function Config() {
   onMount(() => {
     let unlisten: () => void;
     listen<{ key: string; event_type: string }>("global-key-event", (event) => {
-      if (isCapturing() && event.payload.event_type === "keydown") {
-        const keyId = event.payload.key;
-        let label = keyId.replace(/^Key([A-Z])$/, "$1").replace(/^Num(\d)$/, "$1").replace(/^Kp(\d)$/, "$1");
-        const isMac = navigator.userAgent.toLowerCase().includes("mac");
-        
-        if (label === "Return" || label === "KpReturn") label = "Enter";
-        if (label === "Space") label = "␣";
-        if (label.startsWith("Control")) label = "Ctrl";
-        if (label.startsWith("Shift")) label = "Shift";
-        if (label.startsWith("Alt")) label = isMac && label.includes("Gr") ? "Option" : "Alt";
-        if (label.startsWith("Meta")) label = isMac ? "Cmd" : "Win";
-        if (label === "UpArrow") label = "↑";
-        if (label === "DownArrow") label = "↓";
-        if (label === "LeftArrow") label = "←";
-        if (label === "RightArrow") label = "→";
-        if (label === "Escape") label = "Esc";
-        if (label === "Backspace") label = "⌫";
-        if (label === "Tab") label = "⇥";
-        if (label === "Delete") label = "Del";
-        if (label === "Minus" || label === "KpMinus") label = "-";
-        if (label === "Equal" || label === "KpPlus") label = "=";
-        if (label === "Comma") label = ",";
-        if (label === "Dot") label = ".";
-        if (label === "Slash" || label === "KpDivide") label = "/";
-        if (label === "BackSlash") label = "\\";
-        if (label === "SemiColon") label = ";";
-        if (label === "Quote") label = "'";
-        if (label === "BackQuote") label = "`";
-        if (label === "LeftBracket") label = "[";
-        if (label === "RightBracket") label = "]";
-        if (label === "CapsLock") label = "Caps";
-        if (label === "PrintScreen") label = "PrtSc";
-        
-        setAddId(keyId);
-        setAddLabel(label);
-        setIsCapturing(false);
+      if (event.payload.event_type === "keydown") {
+        if (isCapturing() || isCapturingExisting()) {
+          const keyId = event.payload.key;
+          let label = keyId.replace(/^Key([A-Z])$/, "$1").replace(/^Num(\d)$/, "$1").replace(/^Kp(\d)$/, "$1");
+          const isMac = navigator.userAgent.toLowerCase().includes("mac");
+          
+          if (label === "Return" || label === "KpReturn") label = "Enter";
+          if (label === "Space") label = "␣";
+          if (label.startsWith("Control")) label = "Ctrl";
+          if (label.startsWith("Shift")) label = "Shift";
+          if (label.startsWith("Alt")) label = isMac && label.includes("Gr") ? "Option" : "Alt";
+          if (label.startsWith("Meta")) label = isMac ? "Cmd" : "Win";
+          if (label === "UpArrow") label = "↑";
+          if (label === "DownArrow") label = "↓";
+          if (label === "LeftArrow") label = "←";
+          if (label === "RightArrow") label = "→";
+          if (label === "Escape") label = "Esc";
+          if (label === "Backspace") label = "⌫";
+          if (label === "Tab") label = "⇥";
+          if (label === "Delete") label = "Del";
+          if (label === "Minus" || label === "KpMinus") label = "-";
+          if (label === "Equal" || label === "KpPlus") label = "=";
+          if (label === "Comma") label = ",";
+          if (label === "Dot") label = ".";
+          if (label === "Slash" || label === "KpDivide") label = "/";
+          if (label === "BackSlash") label = "\\";
+          if (label === "SemiColon") label = ";";
+          if (label === "Quote") label = "'";
+          if (label === "BackQuote") label = "`";
+          if (label === "LeftBracket") label = "[";
+          if (label === "RightBracket") label = "]";
+          if (label === "CapsLock") label = "Caps";
+          if (label === "PrintScreen") label = "PrtSc";
+          
+          if (isCapturing()) {
+            setAddId(keyId);
+            setAddLabel(label);
+            setIsCapturing(false);
+          } else if (isCapturingExisting() && selectedIdx() !== null) {
+            updateKey(selectedIdx()!, { id: keyId, label });
+            setIsCapturingExisting(false);
+          }
+        }
       }
     }).then((f) => (unlisten = f));
 
@@ -262,7 +273,7 @@ export default function Config() {
     const k = keys()[idx];
     setKeys((prev) => [
       ...prev,
-      { ...k, id: k.id + "_copy", x: k.x + 20, y: k.y + 20 },
+      { ...k, x: k.x + 20, y: k.y + 20 },
     ]);
     setSelectedIdx(keys().length - 1);
   }
@@ -374,20 +385,22 @@ export default function Config() {
           <div class="preview-label">
             Preview — drag keys to position
           </div>
-          <div class="preview-canvas">
-            <For each={keys()}>
-              {(k, i) => (
-                <DraggableKey
-                  config={k}
-                  selected={selectedIdx() === i()}
-                  onSelect={() => setSelectedIdx(i())}
-                  onDragEnd={(x, y) => updateKey(i(), { x, y })}
-                />
-              )}
-            </For>
-            <Show when={keys().length === 0}>
-              <div class="empty-hint">Add a key to get started</div>
-            </Show>
+          <div class="preview-scroll-container">
+            <div class="preview-canvas">
+              <For each={keys()}>
+                {(k, i) => (
+                  <DraggableKey
+                    config={k}
+                    selected={selectedIdx() === i()}
+                    onSelect={() => setSelectedIdx(i())}
+                    onDragEnd={(x, y) => updateKey(i(), { x, y })}
+                  />
+                )}
+              </For>
+              <Show when={keys().length === 0}>
+                <div class="empty-hint">Add a key to get started</div>
+              </Show>
+            </div>
           </div>
         </section>
 
@@ -400,6 +413,15 @@ export default function Config() {
             {(sel) => (
               <div class="props-content">
                 <h2>Properties</h2>
+
+                <button 
+                  class="btn-capture" 
+                  classList={{ active: isCapturingExisting() }}
+                  onClick={() => setIsCapturingExisting(!isCapturingExisting())}
+                  style={{ "margin-bottom": "8px" }}
+                >
+                  {isCapturingExisting() ? "Press any key..." : "Capture New Key"}
+                </button>
 
                 <div class="field">
                   <label>Key ID</label>
@@ -489,6 +511,12 @@ export default function Config() {
                 />
 
                 <ColorField
+                  label="Pressed Outline"
+                  value={sel().pressedOutlineColor}
+                  onInput={(v) => updateKey(selectedIdx()!, { pressedOutlineColor: v })}
+                />
+
+                <ColorField
                   label="Background"
                   value={sel().bgColor}
                   onInput={(v) => updateKey(selectedIdx()!, { bgColor: v })}
@@ -506,6 +534,12 @@ export default function Config() {
                   label="Font Color"
                   value={sel().fontColor}
                   onInput={(v) => updateKey(selectedIdx()!, { fontColor: v })}
+                />
+                
+                <ColorField
+                  label="Pressed Font Color"
+                  value={sel().pressedFontColor}
+                  onInput={(v) => updateKey(selectedIdx()!, { pressedFontColor: v })}
                 />
               </div>
             )}

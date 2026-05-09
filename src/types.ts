@@ -8,10 +8,12 @@ export interface KeyConfig {
   outlineWidth: number;
   outlineColor: string;
   bgColor: string;
+  pressedOutlineColor: string;
   pressedBgColor: string;
   rounded: number;
   fontSize: number;
   fontColor: string;
+  pressedFontColor: string;
 }
 
 export interface AppConfig {

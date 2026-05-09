@@ -43,6 +43,28 @@ export default function Overlay() {
     onCleanup(() => window.removeEventListener("storage", handler));
   });
 
+  createEffect(() => {
+    const currentKeys = keys();
+    if (currentKeys.length === 0) return;
+    
+    let maxX = 0;
+    let maxY = 0;
+    
+    for (const k of currentKeys) {
+      const right = k.x + k.width + k.outlineWidth * 2;
+      const bottom = k.y + k.height + k.outlineWidth * 2;
+      if (right > maxX) maxX = right;
+      if (bottom > maxY) maxY = bottom;
+    }
+    
+    const targetWidth = Math.max(400, maxX + 20);
+    const targetHeight = Math.max(300, maxY + 20);
+    
+    import("@tauri-apps/api/window").then((module) => {
+      module.getCurrentWindow().setSize(new module.LogicalSize(targetWidth, targetHeight));
+    }).catch(() => {});
+  });
+
   return (
     <div class="overlay-root" data-tauri-drag-region>
       <For each={keys()}>
@@ -56,20 +78,24 @@ export default function Overlay() {
               width: `${k.width}px`,
               height: `${k.height}px`,
               "outline-width": `${k.outlineWidth}px`,
-              "outline-color": k.outlineColor,
+              "outline-color": pressed().has(k.id)
+                ? k.pressedOutlineColor
+                : k.outlineColor,
               "outline-style": "solid",
               "background-color": pressed().has(k.id)
                 ? k.pressedBgColor
                 : k.bgColor,
               "border-radius": `${k.rounded}px`,
               "font-size": `${k.fontSize}px`,
-              color: k.fontColor,
+              color: pressed().has(k.id)
+                ? k.pressedFontColor
+                : k.fontColor,
               display: "flex",
               "align-items": "center",
               "justify-content": "center",
               "user-select": "none",
               "pointer-events": "none",
-              transition: "background-color 80ms ease-out",
+              transition: "background-color 80ms ease-out, outline-color 80ms ease-out, color 80ms ease-out",
             }}
           >
             {k.label}
