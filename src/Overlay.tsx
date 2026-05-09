@@ -1,5 +1,6 @@
 import { createSignal, createEffect, onMount, onCleanup, For } from "solid-js";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import type { KeyConfig } from "./types";
@@ -46,6 +47,9 @@ export default function Overlay() {
   let unlisten: UnlistenFn | undefined;
 
   onMount(async () => {
+    const isClickThrough = localStorage.getItem("keyviewer-clickthrough") !== "false";
+    invoke("set_ignore_cursor_events", { ignore: isClickThrough }).catch(console.error);
+
     unlisten = await listen<{ key: string; event_type: "keydown" | "keyup" }>(
       "global-key-event",
       (event) => {
@@ -98,11 +102,17 @@ export default function Overlay() {
     return pressed().has(id) || pressed().has(baseId);
   };
 
+  const onDragStart = (e: PointerEvent) => {
+    if (clickThrough()) return;
+    if (e.target !== e.currentTarget) return;
+    getCurrentWindow().startDragging().catch(console.error);
+  };
+
   return (
     <div 
       class="overlay-root" 
       classList={{ "is-draggable": !clickThrough() }}
-      data-tauri-drag-region 
+      onPointerDown={onDragStart}
     >
       <For each={keys()}>
         {(k) => (
