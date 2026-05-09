@@ -14,19 +14,9 @@ export interface KeyConfig {
   fontSize: number;
   fontColor: string;
   pressedFontColor: string;
-}
-
-export interface RainConfig {
-  enabled: boolean;
-  speed: number;
-  color: string;
-  fontSize: number;
-  trailLength: number;
-  spawnRate: number;
-}
-
-export interface AppConfig {
-  keys: KeyConfig[];
-  overlayActive: boolean;
-  rain: RainConfig;
+  rainDirection: "up" | "down" | "left" | "right";
+  rainWidth: number;
+  rainColor: string;
+  rainSpeed: number;
+  rainMaxHeight: number;
 }

@@ -6,9 +6,7 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 import type { KeyConfig } from "./types";
 
 const STORAGE_KEY = "keyviewer-config";
-
-const RAIN_SPEED = 0.15;
-const MAX_RAIN_HEIGHT = 400;
+const OVERLAY_STATE_KEY = "keyviewer-overlay-state";
 
 const defaultKeyConfig = (id: string, label: string): KeyConfig => ({
   id,
@@ -26,6 +24,11 @@ const defaultKeyConfig = (id: string, label: string): KeyConfig => ({
   fontSize: 20,
   fontColor: "#ffffff",
   pressedFontColor: "#ffffff",
+  rainDirection: "up",
+  rainWidth: 0,
+  rainColor: "#00e5ff",
+  rainSpeed: 0.15,
+  rainMaxHeight: 400,
 });
 
 function loadConfig(): KeyConfig[] {
@@ -41,6 +44,14 @@ function loadConfig(): KeyConfig[] {
     }
   } catch {}
   return [];
+}
+
+function loadOverlayState() {
+  try {
+    const raw = localStorage.getItem(OVERLAY_STATE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
 }
 
 export default function Overlay() {
@@ -63,6 +74,11 @@ export default function Overlay() {
   onMount(async () => {
     const isClickThrough = localStorage.getItem("keyviewer-clickthrough") !== "false";
     invoke("set_ignore_cursor_events", { ignore: isClickThrough }).catch(console.error);
+
+    const state = loadOverlayState();
+    if (state?.x !== undefined && state?.y !== undefined) {
+      invoke("set_overlay_position", { x: state.x, y: state.y }).catch(console.error);
+    }
 
     rafId = requestAnimationFrame(animate);
 
@@ -110,28 +126,58 @@ export default function Overlay() {
     const currentKeys = keys();
     if (currentKeys.length === 0) return;
 
+    let minX = Infinity;
+    let minY = Infinity;
     let maxX = 0;
     let maxY = 0;
-    let maxRainTop = 0;
 
     for (const k of currentKeys) {
-      const right = k.x + k.width + k.outlineWidth * 2;
-      const bottom = k.y + k.height + k.outlineWidth * 2;
-      if (right > maxX) maxX = right;
-      if (bottom > maxY) maxY = bottom;
+      const keyLeft = k.x;
+      const keyTop = k.y;
+      const keyRight = k.x + k.width + k.outlineWidth * 2;
+      const keyBottom = k.y + k.height + k.outlineWidth * 2;
+
+      if (keyLeft < minX) minX = keyLeft;
+      if (keyTop < minY) minY = keyTop;
+      if (keyRight > maxX) maxX = keyRight;
+      if (keyBottom > maxY) maxY = keyBottom;
 
       const isKeyPressed = isPressed(k.id);
       if (isKeyPressed) {
-        const startTime = pressedSince().get(k.id) || now();
-        const duration = now() - startTime;
-        const rainHeight = Math.min(duration * RAIN_SPEED, MAX_RAIN_HEIGHT);
-        const top = k.y - rainHeight;
-        if (top < maxRainTop) maxRainTop = top;
+        const startTime = getPressedStartTime(k.id);
+        if (startTime) {
+          const duration = now() - startTime;
+          const rainLength = Math.min(duration * k.rainSpeed, k.rainMaxHeight);
+
+          switch (k.rainDirection) {
+            case "up": {
+              const top = k.y - rainLength;
+              if (top < minY) minY = top;
+              break;
+            }
+            case "down": {
+              const bottom = k.y + k.height + rainLength;
+              if (bottom > maxY) maxY = bottom;
+              break;
+            }
+            case "left": {
+              const left = k.x - rainLength;
+              if (left < minX) minX = left;
+              break;
+            }
+            case "right": {
+              const right = k.x + k.width + rainLength;
+              if (right > maxX) maxX = right;
+              break;
+            }
+          }
+        }
       }
     }
 
-    const targetWidth = Math.max(400, maxX + 20);
-    const targetHeight = Math.max(300, maxY + 20 + Math.abs(maxRainTop));
+    const padding = 20;
+    const targetWidth = Math.max(400, maxX - Math.max(0, minX) + padding * 2);
+    const targetHeight = Math.max(300, maxY - Math.max(0, minY) + padding * 2);
 
     getCurrentWindow()
       .setSize(new LogicalSize(targetWidth, targetHeight))
@@ -154,26 +200,60 @@ export default function Overlay() {
     getCurrentWindow().startDragging().catch(console.error);
   };
 
+  const getRainStyle = (k: KeyConfig) => {
+    const startTime = getPressedStartTime(k.id);
+    if (!startTime) return null;
+    const duration = now() - startTime;
+    const length = Math.min(duration * k.rainSpeed, k.rainMaxHeight);
+    const width = k.rainWidth > 0 ? k.rainWidth : k.width - k.outlineWidth * 2;
+
+    switch (k.rainDirection) {
+      case "up":
+        return {
+          left: `${k.x + (k.width - width) / 2}px`,
+          top: `${k.y - length}px`,
+          width: `${width}px`,
+          height: `${length}px`,
+        };
+      case "down":
+        return {
+          left: `${k.x + (k.width - width) / 2}px`,
+          top: `${k.y + k.height}px`,
+          width: `${width}px`,
+          height: `${length}px`,
+        };
+      case "left":
+        return {
+          left: `${k.x - length}px`,
+          top: `${k.y + (k.height - width) / 2}px`,
+          width: `${length}px`,
+          height: `${width}px`,
+        };
+      case "right":
+        return {
+          left: `${k.x + k.width}px`,
+          top: `${k.y + (k.height - width) / 2}px`,
+          width: `${length}px`,
+          height: `${width}px`,
+        };
+    }
+  };
+
   return (
     <div class="overlay-root" classList={{ "is-draggable": !clickThrough() }} onPointerDown={onDragStart}>
       <For each={keys()}>
         {(k) => {
-          const startTime = getPressedStartTime(k.id);
-          const duration = startTime ? now() - startTime : 0;
-          const rainHeight = Math.min(duration * RAIN_SPEED, MAX_RAIN_HEIGHT);
           const isKeyPressed = isPressed(k.id);
+          const rainStyle = isKeyPressed ? getRainStyle(k) : null;
 
           return (
             <>
-              <Show when={isKeyPressed && rainHeight > 0}>
+              <Show when={rainStyle}>
                 <div
                   style={{
                     position: "absolute",
-                    left: `${k.x + k.outlineWidth}px`,
-                    top: `${k.y - rainHeight}px`,
-                    width: `${k.width - k.outlineWidth * 2}px`,
-                    height: `${rainHeight}px`,
-                    "background-color": k.pressedBgColor,
+                    ...rainStyle!,
+                    "background-color": k.rainColor,
                     opacity: 0.6,
                     "border-radius": `${k.rounded}px`,
                     "pointer-events": "none",

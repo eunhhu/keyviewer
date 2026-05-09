@@ -419,6 +419,8 @@ body.is-overlay {
   background:
     radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0);
   background-size: 8px 8px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .preview-key {
@@ -591,6 +593,45 @@ body.is-overlay {
 
 .color-text:focus {
   border-color: var(--accent);
+}
+
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.field select:focus {
+  border-color: var(--accent);
+}
+
+.btn-danger {
+  width: 100%;
+  padding: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  background: var(--danger-dim);
+  border: 1px solid rgba(255, 68, 102, 0.25);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: none;
+}
+
+.btn-danger:hover {
+  background: rgba(255, 68, 102, 0.25);
+  box-shadow: 0 0 16px var(--danger-dim);
 }
 
 /* ── Scrollbar global ───────────────────────────────────────────── */

@@ -9,9 +9,10 @@ import {
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { KeyConfig, RainConfig } from "./types";
+import type { KeyConfig } from "./types";
 
 const STORAGE_KEY = "keyviewer-config";
+const OVERLAY_STATE_KEY = "keyviewer-overlay-state";
 
 const defaultKeyConfig = (id: string, label: string): KeyConfig => ({
   id,
@@ -29,39 +30,44 @@ const defaultKeyConfig = (id: string, label: string): KeyConfig => ({
   fontSize: 20,
   fontColor: "#ffffff",
   pressedFontColor: "#ffffff",
+  rainDirection: "up",
+  rainWidth: 0,
+  rainColor: "#00e5ff",
+  rainSpeed: 0.15,
+  rainMaxHeight: 400,
 });
 
-const defaultRainConfig = (): RainConfig => ({
-  enabled: false,
-  speed: 3,
-  color: "#00e5ff",
-  fontSize: 16,
-  trailLength: 20,
-  spawnRate: 1,
-});
-
-function loadConfig(): { keys: KeyConfig[]; rain: RainConfig } {
+function loadConfig(): KeyConfig[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return {
-        keys: (parsed.keys || []).map((k: Partial<KeyConfig>) => ({
-          ...defaultKeyConfig(k.id || "Key", k.label || "Key"),
-          ...k,
-        })),
-        rain: { ...defaultRainConfig(), ...parsed.rain },
-      };
+      const keyArray = parsed.keys || parsed;
+      return keyArray.map((k: Partial<KeyConfig>) => ({
+        ...defaultKeyConfig(k.id || "Key", k.label || "Key"),
+        ...k,
+      }));
     }
   } catch {}
-  return { keys: [], rain: defaultRainConfig() };
+  return [];
 }
 
-function saveConfig(keys: KeyConfig[], rain: RainConfig) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ keys, rain }));
+function saveConfig(keys: KeyConfig[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ keys }));
 }
 
-// ─── Color Input with text fallback ────────────────────────────────
+function loadOverlayState() {
+  try {
+    const raw = localStorage.getItem(OVERLAY_STATE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+function saveOverlayState(state: { x: number; y: number; width: number; height: number }) {
+  localStorage.setItem(OVERLAY_STATE_KEY, JSON.stringify(state));
+}
+
 function ColorField(props: {
   label: string;
   value: string | undefined;
@@ -88,7 +94,6 @@ function ColorField(props: {
   );
 }
 
-// ─── Number Input ──────────────────────────────────────────────────
 function NumberField(props: {
   label: string;
   value: number;
@@ -112,42 +117,36 @@ function NumberField(props: {
   );
 }
 
-// ─── Draggable Key Preview ─────────────────────────────────────────
 function DraggableKey(props: {
   config: KeyConfig;
   selected: boolean;
-  onSelect: () => void;
-  onDragEnd: (x: number, y: number) => void;
+  onSelect: (e: MouseEvent) => void;
+  onDragEnd: (dx: number, dy: number) => void;
 }) {
   let el!: HTMLDivElement;
   let dragging = false;
   let startX = 0;
   let startY = 0;
-  let origX = 0;
-  let origY = 0;
 
   const onPointerDown: JSX.EventHandler<HTMLDivElement, PointerEvent> = (e) => {
+    e.preventDefault();
     dragging = true;
     startX = e.clientX;
     startY = e.clientY;
-    origX = props.config.x;
-    origY = props.config.y;
     el.setPointerCapture(e.pointerId);
-    props.onSelect();
+    props.onSelect(e as unknown as MouseEvent);
   };
 
   const onPointerMove: JSX.EventHandler<HTMLDivElement, PointerEvent> = (e) => {
     if (!dragging) return;
+    e.preventDefault();
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
-    
     const SNAP = 8;
-    const rawX = Math.max(0, origX + dx);
-    const rawY = Math.max(0, origY + dy);
-    
+    const rawX = Math.max(0, props.config.x + dx);
+    const rawY = Math.max(0, props.config.y + dy);
     const nx = Math.round(rawX / SNAP) * SNAP;
     const ny = Math.round(rawY / SNAP) * SNAP;
-    
     el.style.left = `${nx}px`;
     el.style.top = `${ny}px`;
   };
@@ -156,9 +155,11 @@ function DraggableKey(props: {
     if (!dragging) return;
     dragging = false;
     el.releasePointerCapture(e.pointerId);
-    const nx = parseInt(el.style.left, 10);
-    const ny = parseInt(el.style.top, 10);
-    props.onDragEnd(nx, ny);
+    const dx = parseInt(el.style.left, 10) - props.config.x;
+    const dy = parseInt(el.style.top, 10) - props.config.y;
+    el.style.left = `${props.config.x}px`;
+    el.style.top = `${props.config.y}px`;
+    props.onDragEnd(dx, dy);
   };
 
   return (
@@ -188,21 +189,19 @@ function DraggableKey(props: {
   );
 }
 
-// ─── Main Config Component ─────────────────────────────────────────
 export default function Config() {
-  const initialConfig = loadConfig();
-  const [keys, setKeys] = createSignal<KeyConfig[]>(initialConfig.keys);
-  const [rain, setRain] = createSignal<RainConfig>(initialConfig.rain);
-  const [selectedIdx, setSelectedIdx] = createSignal<number | null>(null);
+  const [keys, setKeys] = createSignal<KeyConfig[]>(loadConfig());
+  const [selectedIndices, setSelectedIndices] = createSignal<Set<number>>(new Set());
+  const [lastSelectedIdx, setLastSelectedIdx] = createSignal<number | null>(null);
   const [overlayActive, setOverlayActive] = createSignal(false);
-  const [clickThrough, setClickThrough] = createSignal(localStorage.getItem("keyviewer-clickthrough") !== "false");
+  const [clickThrough, setClickThrough] = createSignal(
+    localStorage.getItem("keyviewer-clickthrough") !== "false"
+  );
   const [isCapturing, setIsCapturing] = createSignal(false);
   const [addId, setAddId] = createSignal("");
   const [addLabel, setAddLabel] = createSignal("");
-
   const [isCapturingExisting, setIsCapturingExisting] = createSignal(false);
 
-  // Persist on change
   createEffect(() => {
     saveConfig(keys());
   });
@@ -215,7 +214,7 @@ export default function Config() {
           const keyId = event.payload.key;
           let label = keyId.replace(/^Key([A-Z])$/, "$1").replace(/^Num(\d)$/, "$1").replace(/^Kp(\d)$/, "$1");
           const isMac = navigator.userAgent.toLowerCase().includes("mac");
-          
+
           if (label === "Return" || label === "KpReturn") label = "Enter";
           if (label === "Space") label = "␣";
           if (label.startsWith("Control")) label = "Ctrl";
@@ -243,13 +242,16 @@ export default function Config() {
           if (label === "RightBracket") label = "]";
           if (label === "CapsLock") label = "Caps";
           if (label === "PrintScreen") label = "PrtSc";
-          
+
           if (isCapturing()) {
             setAddId(keyId);
             setAddLabel(label);
             setIsCapturing(false);
-          } else if (isCapturingExisting() && selectedIdx() !== null) {
-            updateKey(selectedIdx()!, { id: keyId, label });
+          } else if (isCapturingExisting()) {
+            const firstSelected = Array.from(selectedIndices())[0];
+            if (firstSelected !== undefined) {
+              updateKey(firstSelected, { id: keyId, label });
+            }
             setIsCapturingExisting(false);
           }
         }
@@ -261,15 +263,20 @@ export default function Config() {
     });
   });
 
-  const selected = () => {
-    const idx = selectedIdx();
-    return idx !== null ? keys()[idx] : null;
-  };
-
   function updateKey(idx: number, patch: Partial<KeyConfig>) {
     setKeys((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], ...patch };
+      return next;
+    });
+  }
+
+  function updateSelectedKeys(patch: Partial<KeyConfig>) {
+    setKeys((prev) => {
+      const next = [...prev];
+      for (const idx of selectedIndices()) {
+        next[idx] = { ...next[idx], ...patch };
+      }
       return next;
     });
   }
@@ -281,14 +288,33 @@ export default function Config() {
     setKeys((prev) => [...prev, defaultKeyConfig(id, label)]);
     setAddId("");
     setAddLabel("");
-    setSelectedIdx(keys().length - 1);
+    setSelectedIndices(new Set([keys().length]));
+    setLastSelectedIdx(keys().length);
   }
 
   function removeKey(idx: number) {
     setKeys((prev) => prev.filter((_, i) => i !== idx));
-    if (selectedIdx() === idx) setSelectedIdx(null);
-    else if (selectedIdx() !== null && selectedIdx()! > idx)
-      setSelectedIdx(selectedIdx()! - 1);
+    setSelectedIndices((prev) => {
+      const next = new Set<number>();
+      for (const i of prev) {
+        if (i < idx) next.add(i);
+        else if (i > idx) next.add(i - 1);
+      }
+      return next;
+    });
+    setLastSelectedIdx((prev) => {
+      if (prev === idx) return null;
+      if (prev !== null && prev > idx) return prev - 1;
+      return prev;
+    });
+  }
+
+  function removeSelectedKeys() {
+    const selected = selectedIndices();
+    if (selected.size === 0) return;
+    setKeys((prev) => prev.filter((_, i) => !selected.has(i)));
+    setSelectedIndices(new Set());
+    setLastSelectedIdx(null);
   }
 
   function duplicateKey(idx: number) {
@@ -297,19 +323,78 @@ export default function Config() {
       ...prev,
       { ...k, x: k.x + 20, y: k.y + 20 },
     ]);
-    setSelectedIdx(keys().length - 1);
+    const newIdx = keys().length;
+    setSelectedIndices(new Set([newIdx]));
+    setLastSelectedIdx(newIdx);
+  }
+
+  function handleSelect(idx: number, e: MouseEvent) {
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedIndices((prev) => {
+        const next = new Set(prev);
+        if (next.has(idx)) next.delete(idx);
+        else next.add(idx);
+        return next;
+      });
+      setLastSelectedIdx(idx);
+    } else if (e.shiftKey && lastSelectedIdx() !== null) {
+      const start = Math.min(lastSelectedIdx()!, idx);
+      const end = Math.max(lastSelectedIdx()!, idx);
+      const range = new Set<number>();
+      for (let i = start; i <= end; i++) range.add(i);
+      setSelectedIndices(range);
+    } else {
+      setSelectedIndices(new Set([idx]));
+      setLastSelectedIdx(idx);
+    }
+  }
+
+  function handleDragEnd(idx: number, dx: number, dy: number) {
+    const selected = selectedIndices();
+    if (selected.has(idx) && selected.size > 1) {
+      setKeys((prev) => {
+        const next = [...prev];
+        for (const i of selected) {
+          const SNAP = 8;
+          const nx = Math.round((next[i].x + dx) / SNAP) * SNAP;
+          const ny = Math.round((next[i].y + dy) / SNAP) * SNAP;
+          next[i] = { ...next[i], x: Math.max(0, nx), y: Math.max(0, ny) };
+        }
+        return next;
+      });
+    } else {
+      updateKey(idx, { x: Math.max(0, keys()[idx].x + dx), y: Math.max(0, keys()[idx].y + dy) });
+    }
   }
 
   async function toggleOverlay() {
     const next = !overlayActive();
+    if (!next) {
+      try {
+        const pos = await invoke<Option<[number, number]>>("get_overlay_position");
+        const size = await invoke<Option<[number, number]>>("get_overlay_size");
+        if (pos && size) {
+          saveOverlayState({ x: pos[0], y: pos[1], width: size[0], height: size[1] });
+        }
+      } catch (err) {
+        console.error("Failed to save overlay state:", err);
+      }
+    }
     setOverlayActive(next);
     try {
-      await invoke("toggle_overlay", { active: next });
+      const state = loadOverlayState();
+      await invoke("toggle_overlay", {
+        active: next,
+        x: state?.x,
+        y: state?.y,
+        width: state?.width,
+        height: state?.height,
+      });
     } catch (err) {
       console.error("toggle_overlay invoke failed:", err);
     }
   }
-  
+
   async function toggleClickThrough() {
     const next = !clickThrough();
     setClickThrough(next);
@@ -321,26 +406,34 @@ export default function Config() {
     }
   }
 
+  const selectedKeys = () => {
+    const selected = selectedIndices();
+    if (selected.size === 0) return null;
+    const firstIdx = Array.from(selected)[0];
+    return keys()[firstIdx];
+  };
+
+  const hasSelection = () => selectedIndices().size > 0;
+  const selectionCount = () => selectedIndices().size;
+
   return (
     <div class="config-root">
-      {/* ── Header ─────────────────────────────────────────── */}
       <header class="config-header">
         <div class="header-left">
           <span class="logo-mark">⌨</span>
           <h1>KeyViewer</h1>
         </div>
-        
+
         <div style={{ display: "flex", gap: "12px" }}>
           <button
             class="btn-overlay"
             classList={{ active: clickThrough() }}
             onClick={toggleClickThrough}
-            title="When active, the overlay ignores mouse clicks (Click-through). Disable to drag."
           >
             <span class="pulse-dot" />
             {clickThrough() ? "Click-Through ON" : "Click-Through OFF"}
           </button>
-          
+
           <button
             class="btn-overlay"
             classList={{ active: overlayActive() }}
@@ -353,7 +446,6 @@ export default function Config() {
       </header>
 
       <div class="config-body">
-        {/* ── Sidebar: key list ─────────────────────────────── */}
         <aside class="sidebar">
           <div class="sidebar-header">
             <h2>Keys</h2>
@@ -365,8 +457,8 @@ export default function Config() {
               {(k, i) => (
                 <div
                   class="key-item"
-                  classList={{ selected: selectedIdx() === i() }}
-                  onClick={() => setSelectedIdx(i())}
+                  classList={{ selected: selectedIndices().has(i()) }}
+                  onClick={(e) => handleSelect(i(), e)}
                 >
                   <span class="key-item-label">{k.label}</span>
                   <span class="key-item-id">{k.id}</span>
@@ -397,10 +489,9 @@ export default function Config() {
             </For>
           </div>
 
-          {/* Add key form */}
           <div class="add-key-form">
-            <button 
-              class="btn-capture" 
+            <button
+              class="btn-capture"
               classList={{ active: isCapturing() }}
               onClick={() => setIsCapturing(!isCapturing())}
             >
@@ -426,10 +517,9 @@ export default function Config() {
           </div>
         </aside>
 
-        {/* ── Preview canvas ────────────────────────────────── */}
         <section class="preview-area">
           <div class="preview-label">
-            Preview — drag keys to position
+            Preview — drag keys to position (Ctrl/Cmd+click multi-select, Shift+click range)
           </div>
           <div class="preview-scroll-container">
             <div class="preview-canvas">
@@ -437,9 +527,9 @@ export default function Config() {
                 {(k, i) => (
                   <DraggableKey
                     config={k}
-                    selected={selectedIdx() === i()}
-                    onSelect={() => setSelectedIdx(i())}
-                    onDragEnd={(x, y) => updateKey(i(), { x, y })}
+                    selected={selectedIndices().has(i())}
+                    onSelect={(e) => handleSelect(i(), e)}
+                    onDragEnd={(dx, dy) => handleDragEnd(i(), dx, dy)}
                   />
                 )}
               </For>
@@ -450,145 +540,201 @@ export default function Config() {
           </div>
         </section>
 
-        {/* ── Properties panel ──────────────────────────────── */}
         <aside class="props-panel">
           <Show
-            when={selected()}
+            when={hasSelection()}
             fallback={<div class="props-empty">Select a key to edit</div>}
           >
-            {(sel) => (
-              <div class="props-content">
-                <h2>Properties</h2>
+            {(sel) => {
+              const isMulti = selectionCount() > 1;
+              return (
+                <div class="props-content">
+                  <h2>
+                    {isMulti ? `${selectionCount()} keys selected` : "Properties"}
+                  </h2>
 
-                <button 
-                  class="btn-capture" 
-                  classList={{ active: isCapturingExisting() }}
-                  onClick={() => setIsCapturingExisting(!isCapturingExisting())}
-                  style={{ "margin-bottom": "8px" }}
-                >
-                  {isCapturingExisting() ? "Press any key..." : "Capture New Key"}
-                </button>
+                  <Show when={!isMulti}>
+                    <button
+                      class="btn-capture"
+                      classList={{ active: isCapturingExisting() }}
+                      onClick={() => setIsCapturingExisting(!isCapturingExisting())}
+                      style={{ "margin-bottom": "8px" }}
+                    >
+                      {isCapturingExisting() ? "Press any key..." : "Capture New Key"}
+                    </button>
 
-                <div class="field">
-                  <label>Key ID</label>
-                  <input
-                    type="text"
-                    value={sel().id}
-                    onInput={(e) =>
-                      updateKey(selectedIdx()!, { id: e.currentTarget.value })
-                    }
+                    <div class="field">
+                      <label>Key ID</label>
+                      <input
+                        type="text"
+                        value={sel().id}
+                        onInput={(e) =>
+                          updateKey(Array.from(selectedIndices())[0], { id: e.currentTarget.value })
+                        }
+                      />
+                    </div>
+
+                    <div class="field">
+                      <label>Label</label>
+                      <input
+                        type="text"
+                        value={sel().label}
+                        onInput={(e) =>
+                          updateKey(Array.from(selectedIndices())[0], {
+                            label: e.currentTarget.value,
+                          })
+                        }
+                      />
+                    </div>
+                  </Show>
+
+                  <div class="field-row">
+                    <NumberField
+                      label="X"
+                      value={sel().x}
+                      onInput={(v) => updateSelectedKeys({ x: v })}
+                    />
+                    <NumberField
+                      label="Y"
+                      value={sel().y}
+                      onInput={(v) => updateSelectedKeys({ y: v })}
+                    />
+                  </div>
+
+                  <div class="field-row">
+                    <NumberField
+                      label="Width"
+                      value={sel().width}
+                      min={16}
+                      onInput={(v) => updateSelectedKeys({ width: v })}
+                    />
+                    <NumberField
+                      label="Height"
+                      value={sel().height}
+                      min={16}
+                      onInput={(v) => updateSelectedKeys({ height: v })}
+                    />
+                  </div>
+
+                  <div class="field-row">
+                    <NumberField
+                      label="Outline"
+                      value={sel().outlineWidth}
+                      min={0}
+                      max={20}
+                      onInput={(v) => updateSelectedKeys({ outlineWidth: v })}
+                    />
+                    <NumberField
+                      label="Rounded"
+                      value={sel().rounded}
+                      min={0}
+                      max={100}
+                      onInput={(v) => updateSelectedKeys({ rounded: v })}
+                    />
+                  </div>
+
+                  <NumberField
+                    label="Font Size"
+                    value={sel().fontSize}
+                    min={8}
+                    max={72}
+                    onInput={(v) => updateSelectedKeys({ fontSize: v })}
                   />
+
+                  <ColorField
+                    label="Outline Color"
+                    value={sel().outlineColor}
+                    onInput={(v) => updateSelectedKeys({ outlineColor: v })}
+                  />
+
+                  <ColorField
+                    label="Pressed Outline"
+                    value={sel().pressedOutlineColor}
+                    onInput={(v) => updateSelectedKeys({ pressedOutlineColor: v })}
+                  />
+
+                  <ColorField
+                    label="Background"
+                    value={sel().bgColor}
+                    onInput={(v) => updateSelectedKeys({ bgColor: v })}
+                  />
+
+                  <ColorField
+                    label="Pressed BG"
+                    value={sel().pressedBgColor}
+                    onInput={(v) => updateSelectedKeys({ pressedBgColor: v })}
+                  />
+
+                  <ColorField
+                    label="Font Color"
+                    value={sel().fontColor}
+                    onInput={(v) => updateSelectedKeys({ fontColor: v })}
+                  />
+
+                  <ColorField
+                    label="Pressed Font Color"
+                    value={sel().pressedFontColor}
+                    onInput={(v) => updateSelectedKeys({ pressedFontColor: v })}
+                  />
+
+                  <h2 style={{ "margin-top": "16px" }}>Hold Note (Rain)</h2>
+
+                  <div class="field">
+                    <label>Direction</label>
+                    <select
+                      value={sel().rainDirection}
+                      onChange={(e) => updateSelectedKeys({ rainDirection: e.currentTarget.value as KeyConfig["rainDirection"] })}
+                    >
+                      <option value="up">Up</option>
+                      <option value="down">Down</option>
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </div>
+
+                  <div class="field-row">
+                    <NumberField
+                      label="Width"
+                      value={sel().rainWidth}
+                      min={0}
+                      onInput={(v) => updateSelectedKeys({ rainWidth: v })}
+                    />
+                    <NumberField
+                      label="Speed"
+                      value={sel().rainSpeed}
+                      min={0.01}
+                      max={10}
+                      step={0.01}
+                      onInput={(v) => updateSelectedKeys({ rainSpeed: v })}
+                    />
+                  </div>
+
+                  <NumberField
+                    label="Max Length"
+                    value={sel().rainMaxHeight}
+                    min={10}
+                    max={2000}
+                    onInput={(v) => updateSelectedKeys({ rainMaxHeight: v })}
+                  />
+
+                  <ColorField
+                    label="Color"
+                    value={sel().rainColor}
+                    onInput={(v) => updateSelectedKeys({ rainColor: v })}
+                  />
+
+                  <Show when={isMulti}>
+                    <button
+                      class="btn-danger"
+                      onClick={removeSelectedKeys}
+                      style={{ "margin-top": "12px" }}
+                    >
+                      Delete {selectionCount()} keys
+                    </button>
+                  </Show>
                 </div>
-
-                <div class="field">
-                  <label>Label</label>
-                  <input
-                    type="text"
-                    value={sel().label}
-                    onInput={(e) =>
-                      updateKey(selectedIdx()!, {
-                        label: e.currentTarget.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <div class="field-row">
-                  <NumberField
-                    label="X"
-                    value={sel().x}
-                    onInput={(v) => updateKey(selectedIdx()!, { x: v })}
-                  />
-                  <NumberField
-                    label="Y"
-                    value={sel().y}
-                    onInput={(v) => updateKey(selectedIdx()!, { y: v })}
-                  />
-                </div>
-
-                <div class="field-row">
-                  <NumberField
-                    label="Width"
-                    value={sel().width}
-                    min={16}
-                    onInput={(v) => updateKey(selectedIdx()!, { width: v })}
-                  />
-                  <NumberField
-                    label="Height"
-                    value={sel().height}
-                    min={16}
-                    onInput={(v) => updateKey(selectedIdx()!, { height: v })}
-                  />
-                </div>
-
-                <div class="field-row">
-                  <NumberField
-                    label="Outline"
-                    value={sel().outlineWidth}
-                    min={0}
-                    max={20}
-                    onInput={(v) =>
-                      updateKey(selectedIdx()!, { outlineWidth: v })
-                    }
-                  />
-                  <NumberField
-                    label="Rounded"
-                    value={sel().rounded}
-                    min={0}
-                    max={100}
-                    onInput={(v) => updateKey(selectedIdx()!, { rounded: v })}
-                  />
-                </div>
-
-                <NumberField
-                  label="Font Size"
-                  value={sel().fontSize}
-                  min={8}
-                  max={72}
-                  onInput={(v) => updateKey(selectedIdx()!, { fontSize: v })}
-                />
-
-                <ColorField
-                  label="Outline Color"
-                  value={sel().outlineColor}
-                  onInput={(v) =>
-                    updateKey(selectedIdx()!, { outlineColor: v })
-                  }
-                />
-
-                <ColorField
-                  label="Pressed Outline"
-                  value={sel().pressedOutlineColor}
-                  onInput={(v) => updateKey(selectedIdx()!, { pressedOutlineColor: v })}
-                />
-
-                <ColorField
-                  label="Background"
-                  value={sel().bgColor}
-                  onInput={(v) => updateKey(selectedIdx()!, { bgColor: v })}
-                />
-
-                <ColorField
-                  label="Pressed BG"
-                  value={sel().pressedBgColor}
-                  onInput={(v) =>
-                    updateKey(selectedIdx()!, { pressedBgColor: v })
-                  }
-                />
-
-                <ColorField
-                  label="Font Color"
-                  value={sel().fontColor}
-                  onInput={(v) => updateKey(selectedIdx()!, { fontColor: v })}
-                />
-                
-                <ColorField
-                  label="Pressed Font Color"
-                  value={sel().pressedFontColor}
-                  onInput={(v) => updateKey(selectedIdx()!, { pressedFontColor: v })}
-                />
-              </div>
-            )}
+              );
+            }}
           </Show>
         </aside>
       </div>
