@@ -4,10 +4,34 @@ import type { KeyConfig } from "./types";
 
 const STORAGE_KEY = "keyviewer-config";
 
+const defaultKeyConfig = (id: string, label: string): KeyConfig => ({
+  id,
+  label,
+  x: 50,
+  y: 50,
+  width: 64,
+  height: 64,
+  outlineWidth: 2,
+  outlineColor: "#00e5ff",
+  bgColor: "rgba(15, 15, 15, 0.85)",
+  pressedOutlineColor: "#00e5ff",
+  pressedBgColor: "rgba(0, 229, 255, 0.35)",
+  rounded: 10,
+  fontSize: 20,
+  fontColor: "#ffffff",
+  pressedFontColor: "#ffffff",
+});
+
 function loadConfig(): KeyConfig[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as KeyConfig[];
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<KeyConfig>[];
+      return parsed.map((k) => ({
+        ...defaultKeyConfig(k.id || "Key", k.label || "Key"),
+        ...k,
+      }));
+    }
   } catch {}
   return [];
 }
@@ -65,6 +89,11 @@ export default function Overlay() {
     }).catch(() => {});
   });
 
+  const isPressed = (id: string) => {
+    const baseId = id.replace(/_copy.*$/, "");
+    return pressed().has(id) || pressed().has(baseId);
+  };
+
   return (
     <div class="overlay-root" data-tauri-drag-region>
       <For each={keys()}>
@@ -78,16 +107,16 @@ export default function Overlay() {
               width: `${k.width}px`,
               height: `${k.height}px`,
               "outline-width": `${k.outlineWidth}px`,
-              "outline-color": pressed().has(k.id)
+              "outline-color": isPressed(k.id)
                 ? k.pressedOutlineColor
                 : k.outlineColor,
               "outline-style": "solid",
-              "background-color": pressed().has(k.id)
+              "background-color": isPressed(k.id)
                 ? k.pressedBgColor
                 : k.bgColor,
               "border-radius": `${k.rounded}px`,
               "font-size": `${k.fontSize}px`,
-              color: pressed().has(k.id)
+              color: isPressed(k.id)
                 ? k.pressedFontColor
                 : k.fontColor,
               display: "flex",

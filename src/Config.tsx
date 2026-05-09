@@ -34,7 +34,13 @@ const defaultKeyConfig = (id: string, label: string): KeyConfig => ({
 function loadConfig(): KeyConfig[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as KeyConfig[];
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<KeyConfig>[];
+      return parsed.map((k) => ({
+        ...defaultKeyConfig(k.id || "Key", k.label || "Key"),
+        ...k,
+      }));
+    }
   } catch {}
   return [];
 }
@@ -46,22 +52,23 @@ function saveConfig(keys: KeyConfig[]) {
 // ─── Color Input with text fallback ────────────────────────────────
 function ColorField(props: {
   label: string;
-  value: string;
+  value: string | undefined;
   onInput: (v: string) => void;
 }) {
+  const safeValue = () => props.value || "#ffffff";
   return (
     <div class="field color-field">
       <label>{props.label}</label>
       <div class="color-row">
         <input
           type="color"
-          value={props.value.startsWith("#") ? props.value : "#00e5ff"}
+          value={safeValue().startsWith("#") ? safeValue() : "#00e5ff"}
           onInput={(e) => props.onInput(e.currentTarget.value)}
         />
         <input
           type="text"
           class="color-text"
-          value={props.value}
+          value={safeValue()}
           onInput={(e) => props.onInput(e.currentTarget.value)}
         />
       </div>
