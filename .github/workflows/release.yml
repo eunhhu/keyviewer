@@ -54,6 +54,6 @@ jobs:
           tagName: app-v__VERSION__
           releaseName: "KeyViewer v__VERSION__"
           releaseBody: "Release for KeyViewer"
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
