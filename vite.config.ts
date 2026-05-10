@@ -1,20 +1,21 @@
-import { defineConfig } from "vite";
+import { defineConfig, type UserConfig } from "vite";
 import solid from "vite-plugin-solid";
 
-// @ts-expect-error process is a nodejs global
+declare const process: { env: { TAURI_DEV_HOST?: string } };
+
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig((): UserConfig => ({
   plugins: [solid()],
   
   build: {
     target: "esnext",
     minify: "esbuild",
-    cssMinify: "lightningcss",
+    cssMinify: "lightningcss" as const,
     rollupOptions: {
       output: {
-        manualChunks(id) {
+        manualChunks(id: string) {
           if (id.includes('node_modules')) {
             if (id.includes('solid-js')) return 'solid';
             if (id.includes('@tauri-apps')) return 'tauri';

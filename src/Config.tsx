@@ -9,6 +9,8 @@ import {
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { calculateOverlayFit, type OverlayState } from "./overlayFit";
 import type { KeyConfig } from "./types";
 
 const STORAGE_KEY = "keyviewer-config";
@@ -56,7 +58,7 @@ function saveConfig(keys: KeyConfig[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ keys }));
 }
 
-function loadOverlayState() {
+function loadOverlayState(): OverlayState | null {
   try {
     const raw = localStorage.getItem(OVERLAY_STATE_KEY);
     if (raw) return JSON.parse(raw);
@@ -64,8 +66,8 @@ function loadOverlayState() {
   return null;
 }
 
-function saveOverlayState(state: { x: number; y: number; width: number; height: number }) {
-  localStorage.setItem(OVERLAY_STATE_KEY, JSON.stringify(state));
+function saveOverlayStatePatch(patch: Partial<OverlayState>) {
+  localStorage.setItem(OVERLAY_STATE_KEY, JSON.stringify({ ...(loadOverlayState() ?? {}), ...patch }));
 }
 
 function ColorField(props: {
@@ -130,6 +132,7 @@ function DraggableKey(props: {
 
   const onPointerDown: JSX.EventHandler<HTMLDivElement, PointerEvent> = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     dragging = true;
     startX = e.clientX;
     startY = e.clientY;
@@ -285,11 +288,12 @@ export default function Config() {
     const id = addId().trim();
     const label = addLabel().trim() || id;
     if (!id) return;
+    const newIdx = keys().length;
     setKeys((prev) => [...prev, defaultKeyConfig(id, label)]);
     setAddId("");
     setAddLabel("");
-    setSelectedIndices(new Set([keys().length]));
-    setLastSelectedIdx(keys().length);
+    setSelectedIndices(new Set([newIdx]));
+    setLastSelectedIdx(newIdx);
   }
 
   function removeKey(idx: number) {
@@ -313,22 +317,29 @@ export default function Config() {
     const selected = selectedIndices();
     if (selected.size === 0) return;
     setKeys((prev) => prev.filter((_, i) => !selected.has(i)));
-    setSelectedIndices(new Set());
+    setSelectedIndices(new Set<number>());
     setLastSelectedIdx(null);
+  }
+
+  function deselectKeys() {
+    setSelectedIndices(new Set<number>());
+    setLastSelectedIdx(null);
+    setIsCapturingExisting(false);
   }
 
   function duplicateKey(idx: number) {
     const k = keys()[idx];
+    const newIdx = keys().length;
     setKeys((prev) => [
       ...prev,
       { ...k, x: k.x + 20, y: k.y + 20 },
     ]);
-    const newIdx = keys().length;
     setSelectedIndices(new Set([newIdx]));
     setLastSelectedIdx(newIdx);
   }
 
   function handleSelect(idx: number, e: MouseEvent) {
+    e.preventDefault();
     if (e.ctrlKey || e.metaKey) {
       setSelectedIndices((prev) => {
         const next = new Set(prev);
@@ -343,6 +354,8 @@ export default function Config() {
       const range = new Set<number>();
       for (let i = start; i <= end; i++) range.add(i);
       setSelectedIndices(range);
+    } else if (selectedIndices().has(idx) && selectedIndices().size > 1) {
+      setLastSelectedIdx(idx);
     } else {
       setSelectedIndices(new Set([idx]));
       setLastSelectedIdx(idx);
@@ -371,28 +384,73 @@ export default function Config() {
     const next = !overlayActive();
     if (!next) {
       try {
-        const pos = await invoke<Option<[number, number]>>("get_overlay_position");
-        const size = await invoke<Option<[number, number]>>("get_overlay_size");
+        const pos = await invoke<[number, number] | null>("get_overlay_position");
+        const size = await invoke<[number, number] | null>("get_overlay_size");
         if (pos && size) {
-          saveOverlayState({ x: pos[0], y: pos[1], width: size[0], height: size[1] });
+          saveOverlayStatePatch({ x: pos[0], y: pos[1], width: size[0], height: size[1] });
         }
       } catch (err) {
         console.error("Failed to save overlay state:", err);
       }
     }
-    setOverlayActive(next);
     try {
       const state = loadOverlayState();
+      let overlayX = state?.x;
+      let overlayY = state?.y;
+      let overlayWidth = state?.width;
+      let overlayHeight = state?.height;
+
+      if (next && keys().length > 0) {
+        const fit = calculateOverlayFit(keys());
+        const previousOffsetX = state?.contentOffsetX ?? 0;
+        const previousOffsetY = state?.contentOffsetY ?? 0;
+        const deltaX = fit.offset.x - previousOffsetX;
+        const deltaY = fit.offset.y - previousOffsetY;
+
+        overlayWidth = fit.width;
+        overlayHeight = fit.height;
+
+        if (overlayX !== undefined && overlayY !== undefined && (deltaX !== 0 || deltaY !== 0)) {
+          const scaleFactor = await getCurrentWindow().scaleFactor();
+          overlayX = Math.max(0, Math.round(overlayX - deltaX * scaleFactor));
+          overlayY = Math.max(0, Math.round(overlayY - deltaY * scaleFactor));
+        }
+
+        const fitState: Partial<OverlayState> = {
+          width: fit.width,
+          height: fit.height,
+          contentOffsetX: fit.offset.x,
+          contentOffsetY: fit.offset.y,
+        };
+        if (overlayX !== undefined) fitState.x = overlayX;
+        if (overlayY !== undefined) fitState.y = overlayY;
+        saveOverlayStatePatch(fitState);
+      }
+
       await invoke("toggle_overlay", {
         active: next,
-        x: state?.x,
-        y: state?.y,
-        width: state?.width,
-        height: state?.height,
+        x: overlayX,
+        y: overlayY,
+        width: overlayWidth,
+        height: overlayHeight,
+        ignore: clickThrough(),
       });
+      setOverlayActive(next);
     } catch (err) {
       console.error("toggle_overlay invoke failed:", err);
     }
+  }
+
+  function toggleAddCapture() {
+    const next = !isCapturing();
+    setIsCapturing(next);
+    if (next) setIsCapturingExisting(false);
+  }
+
+  function toggleExistingCapture() {
+    const next = !isCapturingExisting();
+    setIsCapturingExisting(next);
+    if (next) setIsCapturing(false);
   }
 
   async function toggleClickThrough() {
@@ -406,14 +464,13 @@ export default function Config() {
     }
   }
 
-  const selectedKeys = () => {
+  const selectedKey = () => {
     const selected = selectedIndices();
     if (selected.size === 0) return null;
     const firstIdx = Array.from(selected)[0];
     return keys()[firstIdx];
   };
 
-  const hasSelection = () => selectedIndices().size > 0;
   const selectionCount = () => selectedIndices().size;
 
   return (
@@ -493,7 +550,7 @@ export default function Config() {
             <button
               class="btn-capture"
               classList={{ active: isCapturing() }}
-              onClick={() => setIsCapturing(!isCapturing())}
+              onClick={toggleAddCapture}
             >
               {isCapturing() ? "Press any key to capture..." : "Auto Capture Key"}
             </button>
@@ -522,7 +579,12 @@ export default function Config() {
             Preview — drag keys to position (Ctrl/Cmd+click multi-select, Shift+click range)
           </div>
           <div class="preview-scroll-container">
-            <div class="preview-canvas">
+            <div
+              class="preview-canvas"
+              onPointerDown={(e) => {
+                if (e.currentTarget === e.target) deselectKeys();
+              }}
+            >
               <For each={keys()}>
                 {(k, i) => (
                   <DraggableKey
@@ -542,7 +604,7 @@ export default function Config() {
 
         <aside class="props-panel">
           <Show
-            when={hasSelection()}
+            when={selectedKey()}
             fallback={<div class="props-empty">Select a key to edit</div>}
           >
             {(sel) => {
@@ -553,11 +615,19 @@ export default function Config() {
                     {isMulti ? `${selectionCount()} keys selected` : "Properties"}
                   </h2>
 
+                  <button
+                    class="btn-secondary"
+                    onClick={deselectKeys}
+                    style={{ "margin-bottom": "8px" }}
+                  >
+                    Deselect
+                  </button>
+
                   <Show when={!isMulti}>
                     <button
                       class="btn-capture"
                       classList={{ active: isCapturingExisting() }}
-                      onClick={() => setIsCapturingExisting(!isCapturingExisting())}
+                      onClick={toggleExistingCapture}
                       style={{ "margin-bottom": "8px" }}
                     >
                       {isCapturingExisting() ? "Press any key..." : "Capture New Key"}

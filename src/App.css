@@ -55,17 +55,13 @@ body.is-overlay {
   overflow: hidden;
 }
 
-.overlay-root[data-tauri-drag-region] {
-  cursor: move;
-}
-
 .overlay-root.is-draggable {
   background: rgba(0, 0, 0, 0.05);
   border: 1px dashed var(--accent);
 }
 
 .overlay-root.is-draggable::before {
-  content: "Drag to move";
+  content: "Edit mode";
   position: absolute;
   top: 10px;
   left: 10px;
@@ -73,6 +69,24 @@ body.is-overlay {
   font-size: 12px;
   color: var(--text-dim);
   pointer-events: none;
+}
+
+.overlay-drag-handle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10000;
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 229, 255, 0.8);
+  border-radius: 999px;
+  background: rgba(10, 10, 15, 0.75);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: move;
+  user-select: none;
+  box-shadow: 0 0 16px var(--accent-dim);
 }
 
 .overlay-key {
@@ -382,6 +396,27 @@ body.is-overlay {
 
 .btn-add:hover {
   background: rgba(0, 229, 255, 0.25);
+  box-shadow: 0 0 16px var(--accent-dim);
+}
+
+.btn-secondary {
+  width: 100%;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: none;
+}
+
+.btn-secondary:hover {
+  border-color: var(--accent);
+  color: var(--text);
   box-shadow: 0 0 16px var(--accent-dim);
 }
 

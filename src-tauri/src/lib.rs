@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition};
 use std::thread;
 
 #[derive(serde::Serialize, Clone)]
@@ -28,7 +28,8 @@ fn start_rdev_listener(app: AppHandle) {
                     key: rdev_key_to_string(key),
                     event_type: type_str.to_string(),
                 };
-                let _ = app.emit("global-key-event", payload);
+                let _ = app.emit_to("main", "global-key-event", payload.clone());
+                let _ = app.emit_to("overlay", "global-key-event", payload);
             }
         }) {
             eprintln!("rdev error: {:?}", error);
@@ -44,6 +45,7 @@ async fn toggle_overlay(
     y: Option<i32>,
     width: Option<u32>,
     height: Option<u32>,
+    ignore: Option<bool>,
 ) -> Result<(), String> {
     if active {
         if app.get_webview_window("overlay").is_none() {
@@ -68,7 +70,7 @@ async fn toggle_overlay(
                 let _ = overlay.set_position(PhysicalPosition::new(px, py));
             }
 
-            let _ = overlay.set_ignore_cursor_events(true);
+            let _ = overlay.set_ignore_cursor_events(ignore.unwrap_or(true));
         }
     } else {
         if let Some(overlay) = app.get_webview_window("overlay") {
@@ -94,11 +96,28 @@ async fn get_overlay_position(app: AppHandle) -> Result<Option<(i32, i32)>, Stri
 async fn get_overlay_size(app: AppHandle) -> Result<Option<(u32, u32)>, String> {
     if let Some(overlay) = app.get_webview_window("overlay") {
         match overlay.inner_size() {
-            Ok(size) => Ok(Some((size.width, size.height))),
+            Ok(size) => {
+                let scale_factor = overlay.scale_factor().unwrap_or(1.0);
+                Ok(Some((
+                    (size.width as f64 / scale_factor).round() as u32,
+                    (size.height as f64 / scale_factor).round() as u32,
+                )))
+            }
             Err(_) => Ok(None),
         }
     } else {
         Ok(None)
+    }
+}
+
+#[tauri::command]
+async fn set_overlay_size(app: AppHandle, width: u32, height: u32) -> Result<(), String> {
+    if let Some(overlay) = app.get_webview_window("overlay") {
+        overlay
+            .set_size(LogicalSize::new(width as f64, height as f64))
+            .map_err(|e| e.to_string())
+    } else {
+        Ok(())
     }
 }
 
@@ -144,6 +163,7 @@ pub fn run() {
             toggle_overlay,
             get_overlay_position,
             get_overlay_size,
+            set_overlay_size,
             set_overlay_position,
             set_ignore_cursor_events,
             get_screen_size
