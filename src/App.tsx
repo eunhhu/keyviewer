@@ -1,4 +1,4 @@
-import { createSignal, onMount, lazy, Suspense } from "solid-js";
+import { createSignal, onMount, onCleanup, lazy, Suspense } from "solid-js";
 import "./App.css";
 
 const Config = lazy(() => import("./Config"));
@@ -16,11 +16,10 @@ function App() {
         document.body.classList.remove("is-overlay");
       }
     };
-    
+
     onHashChange();
-    
     window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
+    onCleanup(() => window.removeEventListener("hashchange", onHashChange));
   });
 
   return (

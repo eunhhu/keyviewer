@@ -12,63 +12,14 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { calculateOverlayFit, type OverlayState } from "./overlayFit";
 import type { KeyConfig } from "./types";
-
-const STORAGE_KEY = "keyviewer-config";
-const OVERLAY_STATE_KEY = "keyviewer-overlay-state";
-
-const defaultKeyConfig = (id: string, label: string): KeyConfig => ({
-  id,
-  label,
-  x: 50,
-  y: 50,
-  width: 64,
-  height: 64,
-  outlineWidth: 2,
-  outlineColor: "#00e5ff",
-  bgColor: "rgba(15, 15, 15, 0.85)",
-  pressedOutlineColor: "#00e5ff",
-  pressedBgColor: "rgba(0, 229, 255, 0.35)",
-  rounded: 10,
-  fontSize: 20,
-  fontColor: "#ffffff",
-  pressedFontColor: "#ffffff",
-  rainDirection: "up",
-  rainWidth: 0,
-  rainColor: "#00e5ff",
-  rainSpeed: 0.15,
-  rainMaxHeight: 400,
-});
-
-function loadConfig(): KeyConfig[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const keyArray = parsed.keys || parsed;
-      return keyArray.map((k: Partial<KeyConfig>) => ({
-        ...defaultKeyConfig(k.id || "Key", k.label || "Key"),
-        ...k,
-      }));
-    }
-  } catch {}
-  return [];
-}
-
-function saveConfig(keys: KeyConfig[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ keys }));
-}
-
-function loadOverlayState(): OverlayState | null {
-  try {
-    const raw = localStorage.getItem(OVERLAY_STATE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return null;
-}
-
-function saveOverlayStatePatch(patch: Partial<OverlayState>) {
-  localStorage.setItem(OVERLAY_STATE_KEY, JSON.stringify({ ...(loadOverlayState() ?? {}), ...patch }));
-}
+import {
+  defaultKeyConfig,
+  loadConfig,
+  saveConfig,
+  loadOverlayState,
+  saveOverlayStatePatch,
+  keyIdToLabel,
+} from "./storage";
 
 function ColorField(props: {
   label: string;
@@ -215,36 +166,7 @@ export default function Config() {
       if (event.payload.event_type === "keydown") {
         if (isCapturing() || isCapturingExisting()) {
           const keyId = event.payload.key;
-          let label = keyId.replace(/^Key([A-Z])$/, "$1").replace(/^Num(\d)$/, "$1").replace(/^Kp(\d)$/, "$1");
-          const isMac = navigator.userAgent.toLowerCase().includes("mac");
-
-          if (label === "Return" || label === "KpReturn") label = "Enter";
-          if (label === "Space") label = "␣";
-          if (label.startsWith("Control")) label = "Ctrl";
-          if (label.startsWith("Shift")) label = "Shift";
-          if (label.startsWith("Alt")) label = isMac && label.includes("Gr") ? "Option" : "Alt";
-          if (label.startsWith("Meta")) label = isMac ? "Cmd" : "Win";
-          if (label === "UpArrow") label = "↑";
-          if (label === "DownArrow") label = "↓";
-          if (label === "LeftArrow") label = "←";
-          if (label === "RightArrow") label = "→";
-          if (label === "Escape") label = "Esc";
-          if (label === "Backspace") label = "⌫";
-          if (label === "Tab") label = "⇥";
-          if (label === "Delete") label = "Del";
-          if (label === "Minus" || label === "KpMinus") label = "-";
-          if (label === "Equal" || label === "KpPlus") label = "=";
-          if (label === "Comma") label = ",";
-          if (label === "Dot") label = ".";
-          if (label === "Slash" || label === "KpDivide") label = "/";
-          if (label === "BackSlash") label = "\\";
-          if (label === "SemiColon") label = ";";
-          if (label === "Quote") label = "'";
-          if (label === "BackQuote") label = "`";
-          if (label === "LeftBracket") label = "[";
-          if (label === "RightBracket") label = "]";
-          if (label === "CapsLock") label = "Caps";
-          if (label === "PrintScreen") label = "PrtSc";
+          const label = keyIdToLabel(keyId);
 
           if (isCapturing()) {
             setAddId(keyId);

@@ -2,68 +2,15 @@ import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { calculateOverlayFit, getRainWidth, type ContentOffset, type OverlayState } from "./overlayFit";
+import { calculateOverlayFit, getRainWidth, type ContentOffset } from "./overlayFit";
 import type { KeyConfig } from "./types";
-
-const STORAGE_KEY = "keyviewer-config";
-const OVERLAY_STATE_KEY = "keyviewer-overlay-state";
+import { loadConfig, loadOverlayState, saveOverlayStatePatch } from "./storage";
 
 interface ReleasedRain {
   id: number;
   key: KeyConfig;
   length: number;
   releasedAt: number;
-}
-
-const defaultKeyConfig = (id: string, label: string): KeyConfig => ({
-  id,
-  label,
-  x: 50,
-  y: 50,
-  width: 64,
-  height: 64,
-  outlineWidth: 2,
-  outlineColor: "#00e5ff",
-  bgColor: "rgba(15, 15, 15, 0.85)",
-  pressedOutlineColor: "#00e5ff",
-  pressedBgColor: "rgba(0, 229, 255, 0.35)",
-  rounded: 10,
-  fontSize: 20,
-  fontColor: "#ffffff",
-  pressedFontColor: "#ffffff",
-  rainDirection: "up",
-  rainWidth: 0,
-  rainColor: "#00e5ff",
-  rainSpeed: 0.15,
-  rainMaxHeight: 400,
-});
-
-function loadConfig(): KeyConfig[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const keyArray = parsed.keys || parsed;
-      return keyArray.map((k: Partial<KeyConfig>) => ({
-        ...defaultKeyConfig(k.id || "Key", k.label || "Key"),
-        ...k,
-      }));
-    }
-  } catch {}
-  return [];
-}
-
-function loadOverlayState(): OverlayState | null {
-  try {
-    const raw = localStorage.getItem(OVERLAY_STATE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return null;
-}
-
-function saveOverlayStatePatch(patch: Partial<OverlayState>) {
-  const current = loadOverlayState() ?? {};
-  localStorage.setItem(OVERLAY_STATE_KEY, JSON.stringify({ ...current, ...patch }));
 }
 
 function keyAliases(id: string) {
@@ -98,13 +45,9 @@ function keyAliases(id: string) {
   return aliases;
 }
 
-function getLayout(offset: ContentOffset) {
-  return { offsetX: offset.x, offsetY: offset.y };
-}
-
 export default function Overlay() {
   const initialOverlayState = loadOverlayState();
-  const initialContentOffset = {
+  const initialContentOffset: ContentOffset = {
     x: initialOverlayState?.contentOffsetX ?? 0,
     y: initialOverlayState?.contentOffsetY ?? 0,
   };
@@ -125,7 +68,6 @@ export default function Overlay() {
   let releasedRainId = 0;
   let appliedContentOffset = initialContentOffset;
   let fitRequestId = 0;
-  const layout = () => getLayout(contentOffset());
 
   const animate = () => {
     const currentTime = Date.now();
@@ -164,7 +106,6 @@ export default function Overlay() {
     ];
 
     setOverlayReady(true);
-
     rafId = requestAnimationFrame(animate);
 
     unlisten = await listen<{ key: string; event_type: "keydown" | "keyup" }>(
@@ -211,6 +152,12 @@ export default function Overlay() {
         });
       }
     );
+
+    onCleanup(() => {
+      unlisten?.();
+      for (const unlistenWindowEvent of windowUnlisteners) unlistenWindowEvent();
+      cancelAnimationFrame(rafId);
+    });
   });
 
   createEffect(() => {
@@ -247,12 +194,6 @@ export default function Overlay() {
         await invoke("set_overlay_size", { width: fit.width, height: fit.height });
       }
     })().catch(console.error);
-  });
-
-  onCleanup(() => {
-    unlisten?.();
-    for (const unlistenWindowEvent of windowUnlisteners) unlistenWindowEvent();
-    cancelAnimationFrame(rafId);
   });
 
   createEffect(() => {
@@ -293,7 +234,7 @@ export default function Overlay() {
     startWindowDrag(e);
   };
 
-  const getRainStyle = (k: KeyConfig, layout: ReturnType<typeof getLayout>) => {
+  const getRainStyle = (k: KeyConfig, offset: ContentOffset) => {
     const startTime = getPressedStartTime(k.id);
     if (!startTime) return null;
     const duration = now() - startTime;
@@ -303,72 +244,83 @@ export default function Overlay() {
     switch (k.rainDirection) {
       case "up":
         return {
-          left: `${k.x + layout.offsetX + (k.width - width) / 2}px`,
-          top: `${k.y + layout.offsetY - length}px`,
+          left: `${k.x + offset.x + (k.width - width) / 2}px`,
+          top: `${k.y + offset.y - length}px`,
           width: `${width}px`,
           height: `${length}px`,
         };
       case "down":
         return {
-          left: `${k.x + layout.offsetX + (k.width - width) / 2}px`,
-          top: `${k.y + layout.offsetY + k.height}px`,
+          left: `${k.x + offset.x + (k.width - width) / 2}px`,
+          top: `${k.y + offset.y + k.height}px`,
           width: `${width}px`,
           height: `${length}px`,
         };
       case "left":
         return {
-          left: `${k.x + layout.offsetX - length}px`,
-          top: `${k.y + layout.offsetY + (k.height - width) / 2}px`,
+          left: `${k.x + offset.x - length}px`,
+          top: `${k.y + offset.y + (k.height - width) / 2}px`,
           width: `${length}px`,
           height: `${width}px`,
         };
       case "right":
         return {
-          left: `${k.x + layout.offsetX + k.width}px`,
-          top: `${k.y + layout.offsetY + (k.height - width) / 2}px`,
+          left: `${k.x + offset.x + k.width}px`,
+          top: `${k.y + offset.y + (k.height - width) / 2}px`,
           width: `${length}px`,
           height: `${width}px`,
         };
     }
   };
 
-  const getReleasedRainStyle = (rain: ReleasedRain, layout: ReturnType<typeof getLayout>) => {
+  const getReleasedRainStyle = (rain: ReleasedRain, offset: ContentOffset) => {
     const k = rain.key;
     const speed = Math.max(0.01, k.rainSpeed);
     const travel = (now() - rain.releasedAt) * speed;
     const width = getRainWidth(k);
-    const currentLength = Math.max(0, k.rainMaxHeight - travel);
+    const holdLength = rain.length;
+    const maxTravel = k.rainMaxHeight;
 
-    const base = {
-      width: `${width}px`,
-      height: `${currentLength}px`,
-    };
+    const visibleLength = Math.max(0, Math.min(holdLength, maxTravel - travel));
+    if (visibleLength <= 0) {
+      return { position: "absolute", width: "0px", height: "0px" } as any;
+    }
 
     switch (k.rainDirection) {
-      case "up":
+      case "up": {
+        const topEdge = k.y + offset.y - Math.min(holdLength + travel, maxTravel);
         return {
-          ...base,
-          left: `${k.x + layout.offsetX + (k.width - width) / 2}px`,
-          top: `${k.y + layout.offsetY - currentLength - travel}px`,
+          position: "absolute",
+          left: `${k.x + offset.x + (k.width - width) / 2}px`,
+          top: `${topEdge}px`,
+          width: `${width}px`,
+          height: `${visibleLength}px`,
         };
+      }
       case "down":
         return {
-          ...base,
-          left: `${k.x + layout.offsetX + (k.width - width) / 2}px`,
-          top: `${k.y + layout.offsetY + k.height + travel}px`,
+          position: "absolute",
+          left: `${k.x + offset.x + (k.width - width) / 2}px`,
+          top: `${k.y + offset.y + k.height + travel}px`,
+          width: `${width}px`,
+          height: `${visibleLength}px`,
         };
-      case "left":
+      case "left": {
+        const leftEdge = k.x + offset.x - Math.min(holdLength + travel, maxTravel);
         return {
-          left: `${k.x + layout.offsetX - currentLength - travel}px`,
-          top: `${k.y + layout.offsetY + (k.height - width) / 2}px`,
-          width: `${currentLength}px`,
+          position: "absolute",
+          left: `${leftEdge}px`,
+          top: `${k.y + offset.y + (k.height - width) / 2}px`,
+          width: `${visibleLength}px`,
           height: `${width}px`,
         };
+      }
       case "right":
         return {
-          left: `${k.x + layout.offsetX + k.width + travel}px`,
-          top: `${k.y + layout.offsetY + (k.height - width) / 2}px`,
-          width: `${currentLength}px`,
+          position: "absolute",
+          left: `${k.x + offset.x + k.width + travel}px`,
+          top: `${k.y + offset.y + (k.height - width) / 2}px`,
+          width: `${visibleLength}px`,
           height: `${width}px`,
         };
     }
@@ -378,10 +330,7 @@ export default function Overlay() {
     <div class="overlay-root" classList={{ "is-draggable": !clickThrough() }} onPointerDown={onRootPointerDown}>
       <Show when={!clickThrough()}>
         <>
-          <div
-            class="overlay-drag-handle"
-            onPointerDown={startWindowDrag}
-          >
+          <div class="overlay-drag-handle" onPointerDown={startWindowDrag}>
             Drag overlay
           </div>
         </>
@@ -391,7 +340,7 @@ export default function Overlay() {
           <div
             style={{
               position: "absolute",
-              ...getReleasedRainStyle(rain, layout()),
+              ...getReleasedRainStyle(rain, contentOffset()),
               "background-color": rain.key.rainColor,
               "border-radius": `${rain.key.rounded}px`,
               "pointer-events": "none",
@@ -402,9 +351,8 @@ export default function Overlay() {
       </For>
       <For each={keys()}>
         {(k) => {
-          const currentLayout = () => layout();
           const isKeyPressed = () => isPressed(k.id);
-          const rainStyle = () => isKeyPressed() ? getRainStyle(k, currentLayout()) : null;
+          const rainStyle = () => isKeyPressed() ? getRainStyle(k, contentOffset()) : null;
 
           return (
             <>
@@ -427,8 +375,8 @@ export default function Overlay() {
                 class="overlay-key"
                 style={{
                   position: "absolute",
-                  left: `${k.x + currentLayout().offsetX}px`,
-                  top: `${k.y + currentLayout().offsetY}px`,
+                  left: `${k.x + contentOffset().x}px`,
+                  top: `${k.y + contentOffset().y}px`,
                   width: `${k.width}px`,
                   height: `${k.height}px`,
                   "outline-width": `${k.outlineWidth}px`,
