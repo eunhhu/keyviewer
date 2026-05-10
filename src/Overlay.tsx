@@ -335,14 +335,13 @@ export default function Overlay() {
   const getReleasedRainStyle = (rain: ReleasedRain, layout: ReturnType<typeof getLayout>) => {
     const k = rain.key;
     const speed = Math.max(0.01, k.rainSpeed);
-    const rawTravel = (now() - rain.releasedAt) * speed;
-    const length = rain.length;
+    const travel = (now() - rain.releasedAt) * speed;
     const width = getRainWidth(k);
-    const travel = rawTravel;
+    const currentLength = Math.max(0, k.rainMaxHeight - travel);
 
     const base = {
       width: `${width}px`,
-      height: `${length}px`,
+      height: `${currentLength}px`,
     };
 
     switch (k.rainDirection) {
@@ -350,7 +349,7 @@ export default function Overlay() {
         return {
           ...base,
           left: `${k.x + layout.offsetX + (k.width - width) / 2}px`,
-          top: `${k.y + layout.offsetY - length - travel}px`,
+          top: `${k.y + layout.offsetY - currentLength - travel}px`,
         };
       case "down":
         return {
@@ -360,16 +359,16 @@ export default function Overlay() {
         };
       case "left":
         return {
-          left: `${k.x + layout.offsetX - length - travel}px`,
+          left: `${k.x + layout.offsetX - currentLength - travel}px`,
           top: `${k.y + layout.offsetY + (k.height - width) / 2}px`,
-          width: `${length}px`,
+          width: `${currentLength}px`,
           height: `${width}px`,
         };
       case "right":
         return {
           left: `${k.x + layout.offsetX + k.width + travel}px`,
           top: `${k.y + layout.offsetY + (k.height - width) / 2}px`,
-          width: `${length}px`,
+          width: `${currentLength}px`,
           height: `${width}px`,
         };
     }
